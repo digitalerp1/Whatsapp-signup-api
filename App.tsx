@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { FbWindow, FbAuthResponse, DebugLog, UserProfile, FbLoginStatusResponse } from './types';
 import { JsonDisplay } from './components/JsonDisplay';
 import { StatusBadge } from './components/StatusBadge';
+import { CallbackView } from './components/CallbackView';
 
 // --- CONSTANTS ---
 const APP_ID = '878785484691005';
@@ -15,12 +16,29 @@ const App: React.FC = () => {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [logs, setLogs] = useState<DebugLog[]>([]);
   const [windowMessages, setWindowMessages] = useState<any[]>([]);
+  
+  // Callback State
+  const [callbackCode, setCallbackCode] = useState<string | null>(null);
 
   // Helpers
   const addLog = useCallback((type: DebugLog['type'], message: string, data?: any) => {
     const timestamp = new Date().toLocaleTimeString();
     setLogs(prev => [{ timestamp, type, message, data }, ...prev]);
   }, []);
+
+  // 0. Check for Redirect Callback on Mount
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    const error = params.get('error_message') || params.get('error');
+
+    if (code) {
+      setCallbackCode(code);
+      addLog('success', 'Callback Detected: Authorization Code Found', { code });
+    } else if (error) {
+      addLog('error', 'Callback Detected: Error from Facebook', { error });
+    }
+  }, [addLog]);
 
   // 1. Initialize Facebook SDK
   useEffect(() => {
@@ -64,13 +82,24 @@ const App: React.FC = () => {
     initFacebookSdk();
   }, [addLog]);
 
-  // 2. Window Message Listener (For Embedded Signup events usually sent via postMessage)
+  // 2. Window Message Listener
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
-      // Filter out react-devtools or other noise if necessary, but keep it broad for debugging
-      if (event.origin === window.location.origin) return; // Ignore self messages usually
+      // Allow messages from facebook subdomains or self
+      // We are lenient here to debug why "Close Tab" isn't triggering sdk callback
       
-      // We log mostly everything to see what WhatsApp flow returns
+      const isTrustedOrigin = event.origin === window.location.origin || 
+                              event.origin.includes('facebook.com') ||
+                              event.origin.includes('whatsapp.com');
+
+      if (!isTrustedOrigin) return; 
+
+      // Log everything that looks like an object data to help debug
+      if (typeof event.data === 'object' && event.data !== null) {
+          // React DevTools noise filtering
+          if (event.data.source && event.data.source.includes('react')) return;
+      }
+      
       setWindowMessages(prev => [...prev, {
         origin: event.origin,
         data: event.data,
@@ -89,19 +118,13 @@ const App: React.FC = () => {
     const fbWindow = window as unknown as FbWindow;
     addLog('info', 'Fetching User Data via Graph API...');
     
-    // Fetch basic profile and businesses to verify token utility
-    fbWindow.FB.api('/me', (response: any) => { // fields: 'name,id,businesses' usually requires specific permissions
-        // We start with basic /me. To get businesses we need the right scope which ConfigID should provide.
+    fbWindow.FB.api('/me', (response: any) => { 
         addLog('success', 'Graph API /me Response', response);
         setUserProfile(response);
     });
-    
-    // Attempt to fetch shared WABA info if permission allows
-    // Note: The path depends on exactly what permissions the ConfigID granted.
-    // Usually it's /me/businesses or /<business_id>/client_whatsapp_business_accounts
   };
 
-  // 4. Login Handler
+  // 4. Login Handler (SDK Popup)
   const handleLogin = () => {
     const fbWindow = window as unknown as FbWindow;
     if (!sdkInitialized) {
@@ -109,34 +132,34 @@ const App: React.FC = () => {
       return;
     }
 
-    // Config options for WhatsApp Embedded Signup
-    // Fix: Changed response_type to 'code' because 'token' is often restricted in this flow.
     const loginOptions = {
         config_id: CONFIG_ID,
-        response_type: 'code', // 'token' is often invalid for Onboarding flows
+        response_type: 'code',
         override_default_response_type: true,
         extras: {
             "sessionInfoVersion": "3",
-            "version": "v3"
+            "setup": {
+               // This setup params ensures better compatibility with V3 flows
+               "external": true 
+            }
         }
     };
 
-    addLog('info', 'Launching Embedded Signup Flow...', loginOptions);
+    addLog('info', 'Launching Embedded Signup (Popup Flow)...', loginOptions);
 
     fbWindow.FB.login((response: FbLoginStatusResponse) => {
+      console.log('FB.login response:', response);
       if (response.authResponse) {
-        addLog('success', 'Login Successful', response);
+        addLog('success', 'Popup Flow Login Successful', response);
         setAuthResponse(response.authResponse);
         
-        // If we got an access token (implicit flow allowed), use it
         if (response.authResponse.accessToken) {
             fetchUserData(response.authResponse.accessToken);
         } else if (response.authResponse.code) {
-            addLog('info', 'Received Authorization Code (Server-side exchange required for token)', { code: response.authResponse.code });
-            // Cannot fetch /me with a code client-side
+            addLog('info', 'Received Authorization Code via Popup', { code: response.authResponse.code });
         }
       } else {
-        addLog('error', 'User cancelled login or did not fully authorize.');
+        addLog('error', 'Login callback fired but no authResponse found. User might have closed tab without finishing or SDK failed to catch message.');
       }
     }, loginOptions);
   };
@@ -151,6 +174,20 @@ const App: React.FC = () => {
      });
   };
 
+  // 5. Manual Redirect URL Generator
+  const getManualLoginUrl = () => {
+      const redirectUri = window.location.href.split('?')[0]; // Current page without params
+      const params = new URLSearchParams({
+          client_id: APP_ID,
+          redirect_uri: redirectUri,
+          response_type: 'code',
+          config_id: CONFIG_ID,
+          state: 'manual_flow_initiated',
+          // Version 20.0 specific params
+      });
+      return `https://www.facebook.com/${API_VERSION}/dialog/oauth?${params.toString()}`;
+  };
+
   const getDisplayCredentials = () => {
     if (!authResponse) return "Waiting for login...";
     if (authResponse.accessToken) return authResponse.accessToken;
@@ -162,6 +199,24 @@ const App: React.FC = () => {
       if (authResponse?.code) return "Authorization Code";
       return "Temporary Access Token";
   };
+
+  // --- RENDER ---
+
+  // If we have a code from the URL, show the Callback View
+  if (callbackCode) {
+      return (
+        <CallbackView 
+            code={callbackCode} 
+            fullUrl={window.location.href} 
+            onBack={() => {
+                // Clear URL params without refresh
+                window.history.pushState({}, document.title, window.location.pathname);
+                setCallbackCode(null);
+                addLog('info', 'Returned to main view from Callback View');
+            }} 
+        />
+      );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 pb-20">
@@ -183,25 +238,53 @@ const App: React.FC = () => {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         
         {/* Hero / Action Section */}
-        <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-8 mb-8 text-center">
-          <h2 className="text-2xl font-bold text-slate-800 mb-2">WhatsApp Embedded Signup Debugger</h2>
-          <p className="text-slate-500 max-w-2xl mx-auto mb-8">
-            This tool initializes the Facebook SDK with App ID <strong>{APP_ID}</strong> and triggers the 
-            onboarding flow using Config ID <strong>{CONFIG_ID}</strong>. 
-            Login to reveal your temporary credentials and server response.
-          </p>
+        <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-8 mb-8">
+          <div className="text-center mb-8">
+            <h2 className="text-2xl font-bold text-slate-800 mb-2">WhatsApp Embedded Signup Debugger</h2>
+            <p className="text-slate-500 max-w-2xl mx-auto">
+                Test the onboarding flow using either the SDK Popup (Standard) or a Redirect URL (Fallback).
+            </p>
+          </div>
 
           {!authResponse ? (
-            <button
-              onClick={handleLogin}
-              disabled={!sdkInitialized}
-              className="inline-flex items-center gap-2 bg-[#1877F2] hover:bg-[#166fe5] text-white px-8 py-3 rounded-lg font-semibold shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:-translate-y-0.5"
-            >
-              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.791-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
-              </svg>
-              {sdkInitialized ? 'Log In with Facebook' : 'Loading SDK...'}
-            </button>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto">
+                
+                {/* Method 1: SDK Popup */}
+                <div className="border border-slate-200 rounded-xl p-6 bg-slate-50 flex flex-col items-center text-center">
+                    <div className="bg-blue-100 text-blue-600 p-3 rounded-full mb-4">
+                        <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.791-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
+                    </div>
+                    <h3 className="font-bold text-slate-700 mb-2">Method 1: Popup Flow</h3>
+                    <p className="text-xs text-slate-500 mb-4 h-10">
+                        Uses <code>FB.login</code>. If this closes without response, try the Redirect method.
+                    </p>
+                    <button
+                        onClick={handleLogin}
+                        disabled={!sdkInitialized}
+                        className="w-full bg-[#1877F2] hover:bg-[#166fe5] text-white px-4 py-2 rounded-lg font-semibold shadow-sm transition-all disabled:opacity-50 text-sm"
+                    >
+                        {sdkInitialized ? 'Launch Popup' : 'Loading SDK...'}
+                    </button>
+                </div>
+
+                {/* Method 2: Redirect */}
+                <div className="border border-slate-200 rounded-xl p-6 bg-slate-50 flex flex-col items-center text-center">
+                    <div className="bg-purple-100 text-purple-600 p-3 rounded-full mb-4">
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                    </div>
+                    <h3 className="font-bold text-slate-700 mb-2">Method 2: Redirect Flow</h3>
+                    <p className="text-xs text-slate-500 mb-4 h-10">
+                        Redirects entire page to Facebook. Returns to this page with code. Reliable fallback.
+                    </p>
+                    <a
+                        href={getManualLoginUrl()}
+                        className="w-full inline-block bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg font-semibold shadow-sm transition-all text-sm"
+                    >
+                        Use Redirect URL
+                    </a>
+                </div>
+
+            </div>
           ) : (
             <div className="flex flex-col items-center gap-4">
                <div className="p-4 bg-green-50 text-green-700 rounded-lg border border-green-200 flex items-center gap-3">
