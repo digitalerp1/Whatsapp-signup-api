@@ -174,16 +174,21 @@ const App: React.FC = () => {
   };
 
   // --- ROUTING LOGIC ---
-  // If we are on /OAuth, render the CallbackView immediately
-  const isOAuth = currentPath.toLowerCase().includes('/oauth');
+  // If we are on /OAuth or /OAuth.html, render the CallbackView immediately
+  const path = currentPath.toLowerCase();
+  const isOAuth = path.includes('/oauth');
   
   if (isOAuth) {
       const params = new URLSearchParams(window.location.search);
       const code = params.get('code') || '';
+      const error = params.get('error') || params.get('error_code') || '';
+      const errorDescription = params.get('error_message') || params.get('error_description') || '';
       
       return (
         <CallbackView 
-           code={code} 
+           code={code}
+           error={error}
+           errorDescription={errorDescription}
            fullUrl={window.location.href}
            onBack={() => {
               window.history.pushState({}, '', '/');

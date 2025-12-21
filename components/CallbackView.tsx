@@ -3,54 +3,91 @@ import { JsonDisplay } from './JsonDisplay';
 
 interface CallbackViewProps {
   code: string;
+  error?: string;
+  errorDescription?: string;
   fullUrl: string;
   onBack: () => void;
 }
 
-export const CallbackView: React.FC<CallbackViewProps> = ({ code, fullUrl, onBack }) => {
+export const CallbackView: React.FC<CallbackViewProps> = ({ code, error, errorDescription, fullUrl, onBack }) => {
+  const isSuccess = !!code && !error;
+  const allParams = Object.fromEntries(new URLSearchParams(window.location.search));
+
   return (
     <div className="min-h-screen bg-slate-50 p-8">
       <div className="max-w-3xl mx-auto space-y-6">
         
-        <div className="bg-green-50 border border-green-200 rounded-xl p-6 text-center">
-          <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4">
-            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
-            </svg>
+        {/* Status Header */}
+        <div className={`border rounded-xl p-8 text-center shadow-sm ${
+          isSuccess ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
+        }`}>
+          <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 ${
+            isSuccess ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'
+          }`}>
+            {isSuccess ? (
+              <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
+              </svg>
+            ) : (
+              <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+              </svg>
+            )}
           </div>
-          <h2 className="text-2xl font-bold text-green-800">Callback Received Successfully!</h2>
-          <p className="text-green-700 mt-2">
-            The WhatsApp Onboarding flow redirected back to this app with an Authorization Code.
+          
+          <h2 className={`text-3xl font-bold mb-2 ${
+            isSuccess ? 'text-green-800' : 'text-red-800'
+          }`}>
+            {isSuccess ? 'Authorization Successful!' : 'Authorization Failed'}
+          </h2>
+          
+          <p className={`text-lg ${isSuccess ? 'text-green-700' : 'text-red-700'}`}>
+            {isSuccess 
+              ? 'We have successfully captured the Authorization Code from Facebook.'
+              : 'Facebook returned an error during the authentication process.'}
           </p>
+          
+          {errorDescription && (
+             <p className="mt-4 p-3 bg-red-100 text-red-800 rounded-lg text-sm font-mono inline-block">
+               {errorDescription}
+             </p>
+          )}
         </div>
 
+        {/* Data Section */}
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-          <h3 className="text-lg font-bold text-slate-800 mb-4">Authorization Data</h3>
+          <h3 className="text-lg font-bold text-slate-800 mb-4 border-b pb-2">Response Details</h3>
           
-          <div className="mb-6">
-            <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Authorization Code (Exchange this for Token)</label>
-            <textarea 
-              readOnly 
-              className="w-full h-24 bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs font-mono text-slate-700 focus:outline-none focus:ring-2 focus:ring-green-500"
-              value={code}
-            />
-            <p className="text-xs text-slate-400 mt-2">
-              This code was extracted from the URL query parameters.
-            </p>
-          </div>
+          {isSuccess && (
+            <div className="mb-6">
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-2">
+                Authorization Code
+              </label>
+              <div className="relative">
+                <textarea 
+                  readOnly 
+                  className="w-full h-24 bg-green-50 border border-green-200 rounded-lg p-4 text-sm font-mono text-green-800 focus:outline-none focus:ring-2 focus:ring-green-500"
+                  value={code}
+                />
+              </div>
+              <p className="text-xs text-slate-400 mt-2">
+                Send this code to your backend to exchange it for a permanent access token.
+              </p>
+            </div>
+          )}
 
           <JsonDisplay 
-            title="Full URL Parameters" 
-            data={Object.fromEntries(new URLSearchParams(window.location.search))} 
+            title="All URL Parameters" 
+            data={allParams} 
           />
         </div>
 
         <div className="text-center">
           <button 
             onClick={onBack}
-            className="text-slate-500 hover:text-slate-800 underline text-sm"
+            className="inline-flex items-center gap-2 bg-slate-800 hover:bg-slate-900 text-white px-6 py-2.5 rounded-lg font-medium transition-colors"
           >
-            &larr; Return to Main Debugger
+            &larr; Return to Dashboard
           </button>
         </div>
 
