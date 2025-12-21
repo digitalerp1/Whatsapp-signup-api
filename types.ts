@@ -5,7 +5,8 @@ export interface FbLoginStatusResponse {
 }
 
 export interface FbAuthResponse {
-  accessToken: string;
+  accessToken?: string;
+  code?: string;
   expiresIn: number;
   signedRequest: string;
   userID: string;
@@ -21,6 +22,7 @@ export interface FbLoginOptions {
   config_id?: string; // Critical for Embedded Signup V3
   response_type?: string;
   override_default_response_type?: boolean;
+  extras?: Record<string, any>;
 }
 
 export interface FbWindow extends Window {

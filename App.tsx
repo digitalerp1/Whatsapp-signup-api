@@ -43,7 +43,9 @@ const App: React.FC = () => {
             addLog('info', 'Initial Login Status Checked', response);
             if (response.status === 'connected' && response.authResponse) {
                 setAuthResponse(response.authResponse);
-                fetchUserData(response.authResponse.accessToken);
+                if (response.authResponse.accessToken) {
+                    fetchUserData(response.authResponse.accessToken);
+                }
             }
         });
       };
@@ -107,20 +109,36 @@ const App: React.FC = () => {
       return;
     }
 
-    addLog('info', 'Launching Embedded Signup Flow...', { config_id: CONFIG_ID });
+    // Config options for WhatsApp Embedded Signup
+    // Fix: Changed response_type to 'code' because 'token' is often restricted in this flow.
+    const loginOptions = {
+        config_id: CONFIG_ID,
+        response_type: 'code', // 'token' is often invalid for Onboarding flows
+        override_default_response_type: true,
+        extras: {
+            "sessionInfoVersion": "3",
+            "version": "v3"
+        }
+    };
+
+    addLog('info', 'Launching Embedded Signup Flow...', loginOptions);
 
     fbWindow.FB.login((response: FbLoginStatusResponse) => {
       if (response.authResponse) {
         addLog('success', 'Login Successful', response);
         setAuthResponse(response.authResponse);
-        fetchUserData(response.authResponse.accessToken);
+        
+        // If we got an access token (implicit flow allowed), use it
+        if (response.authResponse.accessToken) {
+            fetchUserData(response.authResponse.accessToken);
+        } else if (response.authResponse.code) {
+            addLog('info', 'Received Authorization Code (Server-side exchange required for token)', { code: response.authResponse.code });
+            // Cannot fetch /me with a code client-side
+        }
       } else {
         addLog('error', 'User cancelled login or did not fully authorize.');
       }
-    }, {
-      config_id: CONFIG_ID, // CRITICAL: This triggers the specific WhatsApp flow
-      // scope: 'whatsapp_business_management, ...' // Scopes are usually defined inside the Config ID on Meta dashboard
-    });
+    }, loginOptions);
   };
 
   const handleLogout = () => {
@@ -131,6 +149,18 @@ const App: React.FC = () => {
          setUserProfile(null);
          setWindowMessages([]);
      });
+  };
+
+  const getDisplayCredentials = () => {
+    if (!authResponse) return "Waiting for login...";
+    if (authResponse.accessToken) return authResponse.accessToken;
+    if (authResponse.code) return authResponse.code;
+    return "No credentials found in response.";
+  };
+
+  const getCredentialLabel = () => {
+      if (authResponse?.code) return "Authorization Code";
+      return "Temporary Access Token";
   };
 
   return (
@@ -158,7 +188,7 @@ const App: React.FC = () => {
           <p className="text-slate-500 max-w-2xl mx-auto mb-8">
             This tool initializes the Facebook SDK with App ID <strong>{APP_ID}</strong> and triggers the 
             onboarding flow using Config ID <strong>{CONFIG_ID}</strong>. 
-            Login to reveal your temporary access token and server response.
+            Login to reveal your temporary credentials and server response.
           </p>
 
           {!authResponse ? (
@@ -176,7 +206,7 @@ const App: React.FC = () => {
             <div className="flex flex-col items-center gap-4">
                <div className="p-4 bg-green-50 text-green-700 rounded-lg border border-green-200 flex items-center gap-3">
                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg>
-                 <span>Successfully Authenticated as <strong>{userProfile?.name || 'User'}</strong></span>
+                 <span>Successfully Authenticated as <strong>{userProfile?.name || 'Authorized User'}</strong></span>
                </div>
                <button onClick={handleLogout} className="text-sm text-slate-500 hover:text-red-600 underline">
                  Clear Session & Logout
@@ -194,11 +224,11 @@ const App: React.FC = () => {
               Captured Credentials
             </h3>
 
-            {/* Access Token Display */}
+            {/* Credential Display */}
             <div className="bg-white rounded-lg border border-slate-200 p-4 shadow-sm">
               <div className="flex justify-between items-center mb-2">
-                 <label className="text-xs font-bold text-slate-500 uppercase">Temporary Access Token</label>
-                 {authResponse && (
+                 <label className="text-xs font-bold text-slate-500 uppercase">{getCredentialLabel()}</label>
+                 {authResponse && authResponse.expiresIn && (
                     <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
                       Expires in: {authResponse.expiresIn}s
                     </span>
@@ -208,11 +238,13 @@ const App: React.FC = () => {
                 <textarea 
                   readOnly 
                   className="w-full h-24 bg-slate-50 border border-slate-200 rounded p-3 text-xs font-mono text-slate-600 focus:ring-2 focus:ring-blue-500 focus:outline-none resize-none"
-                  value={authResponse?.accessToken || "Waiting for login..."}
+                  value={getDisplayCredentials()}
                 />
               </div>
               <p className="text-xs text-slate-400 mt-2">
-                Use this token to make Graph API calls. Note: This is a short-lived token.
+                {authResponse?.code 
+                  ? "This is an Authorization Code. It must be exchanged on a server for an Access Token." 
+                  : "Use this token to make Graph API calls."}
               </p>
             </div>
 
@@ -224,7 +256,7 @@ const App: React.FC = () => {
             
             <JsonDisplay 
               title="User Profile (Graph API /me)" 
-              data={userProfile || { status: 'waiting_for_token' }} 
+              data={userProfile || { status: 'Not available (Code flow used or waiting)' }} 
             />
           </div>
 
