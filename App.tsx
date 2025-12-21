@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { FbWindow, FbAuthResponse, DebugLog, UserProfile, FbLoginStatusResponse } from './types';
 import { JsonDisplay } from './components/JsonDisplay';
 import { StatusBadge } from './components/StatusBadge';
+import { CallbackView } from './components/CallbackView';
 
 // --- CONSTANTS ---
 const APP_ID = '878785484691005';
@@ -15,6 +16,9 @@ const App: React.FC = () => {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [logs, setLogs] = useState<DebugLog[]>([]);
   const [windowMessages, setWindowMessages] = useState<any[]>([]);
+  
+  // Route State
+  const [currentPath, setCurrentPath] = useState(window.location.pathname);
 
   // Helpers
   const addLog = useCallback((type: DebugLog['type'], message: string, data?: any) => {
@@ -67,30 +71,24 @@ const App: React.FC = () => {
   // 2. Window Message Listener (CRITICAL for Embedded Signup Data)
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
-      // 1. Filter out React DevTools noise
       if (typeof event.data === 'object' && event.data !== null) {
           if (event.data.source && event.data.source.includes('react')) return;
       }
 
-      // 2. Check Origin (Allow Facebook and WhatsApp)
       const isTrustedOrigin = event.origin === window.location.origin || 
                               event.origin.includes('facebook.com') ||
                               event.origin.includes('whatsapp.com');
 
-      // Log everything that isn't react noise, but mark untrusted ones
       if (!isTrustedOrigin) {
-         // console.warn('Ignored message from untrusted origin:', event.origin, event.data);
          return; 
       }
       
-      // 3. Store and Log the Message
       setWindowMessages(prev => [...prev, {
         origin: event.origin,
         data: event.data,
         timestamp: new Date().toLocaleTimeString()
       }]);
       
-      // If the message contains typical auth data, highlight it
       if (event.data && (event.data.code || event.data.accessToken)) {
          addLog('success', 'Captured Auth Data via PostMessage', event.data);
       } else {
@@ -113,7 +111,7 @@ const App: React.FC = () => {
     });
   };
 
-  // 4. Login Handler (Popup Flow Only)
+  // 4. Login Handler (Popup Flow)
   const handleLogin = () => {
     const fbWindow = window as unknown as FbWindow;
     if (!sdkInitialized) {
@@ -123,10 +121,10 @@ const App: React.FC = () => {
 
     const loginOptions = {
         config_id: CONFIG_ID,
-        response_type: 'code', // Required for secure flow
+        response_type: 'code', 
         override_default_response_type: true,
         extras: {
-            "sessionInfoVersion": "3", // Tells FB to send data back via message
+            "sessionInfoVersion": "3", 
             "setup": {
                "external": true 
             }
@@ -148,7 +146,6 @@ const App: React.FC = () => {
             addLog('info', 'Received Authorization Code', { code: response.authResponse.code });
         }
       } else {
-        // This often happens if the user closes the popup manually OR if the data came via postMessage instead
         addLog('info', 'Popup closed. Checking for postMessage data...');
       }
     }, loginOptions);
@@ -176,6 +173,26 @@ const App: React.FC = () => {
       return "Temporary Access Token";
   };
 
+  // --- ROUTING LOGIC ---
+  // If we are on /OAuth, render the CallbackView immediately
+  const isOAuth = currentPath.toLowerCase().includes('/oauth');
+  
+  if (isOAuth) {
+      const params = new URLSearchParams(window.location.search);
+      const code = params.get('code') || '';
+      
+      return (
+        <CallbackView 
+           code={code} 
+           fullUrl={window.location.href}
+           onBack={() => {
+              window.history.pushState({}, '', '/');
+              setCurrentPath('/');
+           }} 
+        />
+      );
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 pb-20">
       {/* Header */}
@@ -200,7 +217,7 @@ const App: React.FC = () => {
           <h2 className="text-2xl font-bold text-slate-800 mb-2">WhatsApp Embedded Signup</h2>
           <p className="text-slate-500 max-w-2xl mx-auto mb-8">
             Clicking the button below will open the Facebook Popup. <br/>
-            <strong>Note:</strong> If the popup shows "Close this tab" at the end, close it manually. The data should appear in the "Window Messages" section below.
+            <strong>Note:</strong> If the popup behaves like a redirect, the app now supports the <code>/OAuth</code> callback route.
           </p>
 
           {!authResponse ? (
