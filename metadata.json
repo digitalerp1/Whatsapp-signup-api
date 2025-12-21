@@ -1,0 +1,5 @@
+{
+  "name": "WhatsApp Onboarding Tester",
+  "description": "A developer tool to test WhatsApp Embedded Signup, capture the temporary access token, and debug server responses using the Facebook SDK.",
+  "requestFramePermissions": []
+}
