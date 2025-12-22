@@ -8,8 +8,8 @@ export default defineConfig({
   build: {
     rollupOptions: {
       input: {
-        main: resolve(__dirname, 'index.html'),
-        oauth: resolve(__dirname, 'OAuth.html'),
+        main: resolve('index.html'),
+        oauth: resolve('OAuth.html'),
       },
     },
   },
