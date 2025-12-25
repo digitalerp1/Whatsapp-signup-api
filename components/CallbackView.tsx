@@ -6,10 +6,11 @@ interface CallbackViewProps {
   error?: string;
   errorDescription?: string;
   fullUrl: string;
+  backendResponse?: any;
   onBack: () => void;
 }
 
-export const CallbackView: React.FC<CallbackViewProps> = ({ code, error, errorDescription, fullUrl, onBack }) => {
+export const CallbackView: React.FC<CallbackViewProps> = ({ code, error, errorDescription, fullUrl, backendResponse, onBack }) => {
   const isSuccess = !!code && !error;
   const allParams = Object.fromEntries(new URLSearchParams(window.location.search));
 
@@ -48,7 +49,9 @@ export const CallbackView: React.FC<CallbackViewProps> = ({ code, error, errorDe
           </p>
           
           {errorDescription && (
-             <p className="mt-4 p-3 bg-red-100 text-red-800 rounded-lg text-sm font-mono inline-block">
+             <p className={`mt-4 p-3 rounded-lg text-sm font-mono inline-block ${
+               isSuccess ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+             }`}>
                {errorDescription}
              </p>
           )}
@@ -73,6 +76,13 @@ export const CallbackView: React.FC<CallbackViewProps> = ({ code, error, errorDe
               <p className="text-xs text-slate-400 mt-2">
                 Send this code to your backend to exchange it for a permanent access token.
               </p>
+            </div>
+          )}
+
+          {/* New Backend Response Display */}
+          {backendResponse && (
+            <div className="mb-6">
+              <JsonDisplay title="Server Response (Token Exchange Details)" data={backendResponse} />
             </div>
           )}
 

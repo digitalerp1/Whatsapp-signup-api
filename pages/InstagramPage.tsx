@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Instagram, Copy, ExternalLink, Check } from 'lucide-react';
 
 const INSTAGRAM_APP_ID = '1176336757947257';
-// Use the existing /oauth route in the app for handling callbacks
+// This matches the "Valid OAuth Redirect URIs" you entered in Facebook
 const REDIRECT_PATH = '/oauth'; 
 
 const SCOPES = [
@@ -18,15 +18,18 @@ export const InstagramPage: React.FC = () => {
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    // Dynamically determine the redirect URI based on where the app is running
-    // This works for localhost and your production domain automatically
-    const origin = window.location.origin;
+    // Logic: If we are on localhost, keep localhost. 
+    // If we are on production, force the exact domain you provided to avoid mismatch errors.
+    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    const origin = isLocal ? window.location.origin : 'https://whatsapp-signup-api.pages.dev';
+    
     setRedirectUri(`${origin}${REDIRECT_PATH}`);
   }, []);
 
   const handleLogin = () => {
     // Construct the Instagram OAuth URL
-    const authUrl = `https://www.instagram.com/oauth/authorize?enable_fb_login=0&force_authentication=1&client_id=${INSTAGRAM_APP_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${SCOPES}`;
+    // Using force_reauth=true as requested for testing flow
+    const authUrl = `https://www.instagram.com/oauth/authorize?force_reauth=true&client_id=${INSTAGRAM_APP_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${SCOPES}`;
     
     // Redirect the user
     window.location.href = authUrl;
@@ -64,8 +67,8 @@ export const InstagramPage: React.FC = () => {
           
           <div className="space-y-4">
             <p className="text-sm text-slate-600 leading-relaxed">
-              To allow users to log in, you must add the Redirect URI below to your Facebook App settings under 
-              <strong> Instagram Basic Display</strong> or <strong>Facebook Login for Business</strong> settings.
+              To allow users to log in, you must add the exact URL below to your Facebook App settings under 
+              <strong> Instagram Basic Display</strong> or <strong>Facebook Login for Business</strong> &gt; <strong>Settings</strong>.
             </p>
 
             <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
@@ -86,7 +89,7 @@ export const InstagramPage: React.FC = () => {
               </div>
               <p className="text-xs text-amber-600 mt-2 flex items-center gap-1">
                 <AlertIcon />
-                Paste this exactly into your Facebook App settings.
+                Paste this EXACTLY into the "Valid OAuth Redirect URIs" field.
               </p>
             </div>
 
@@ -111,7 +114,7 @@ export const InstagramPage: React.FC = () => {
             </div>
             <h3 className="text-xl font-bold text-slate-800 mb-2">Ready to Connect?</h3>
             <p className="text-slate-500 text-sm max-w-xs mx-auto mb-8">
-              This will redirect you to Instagram to approve the permissions required for automation.
+              This will redirect you to Instagram. After you approve, you will be returned to this app.
             </p>
             
             <button

@@ -10,6 +10,7 @@ import { FacebookPage } from './pages/FacebookPage';
 import { HelpPage } from './pages/HelpPage';
 import { PrivacyPage } from './pages/PrivacyPage';
 import { TermsPage } from './pages/TermsPage';
+import { WebhookHandlerPage } from './pages/WebhookHandlerPage'; // New Import
 import { CallbackView } from './components/CallbackView';
 import { Loader2 } from 'lucide-react';
 import { supabase } from './lib/supabase';
@@ -41,6 +42,7 @@ const OAuthCallback: React.FC = () => {
   const { user } = useAuth();
   const [sendStatus, setSendStatus] = useState<'idle' | 'sending' | 'success' | 'error'>('idle');
   const [apiResponse, setApiResponse] = useState<string>('');
+  const [backendData, setBackendData] = useState<any>(null);
 
   const params = new URLSearchParams(window.location.search);
   const code = params.get('code') || '';
@@ -52,11 +54,17 @@ const OAuthCallback: React.FC = () => {
       if (code && !error && user && sendStatus === 'idle') {
         setSendStatus('sending');
         try {
+          // Determine the redirect URI exactly as it was calculated in InstagramPage
+          const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+          const origin = isLocal ? window.location.origin : 'https://whatsapp-signup-api.pages.dev';
+          const redirectUri = `${origin}/oauth`;
+
           const payload = {
             event: 'oauth_callback_received',
             timestamp: new Date().toISOString(),
-            provider: 'instagram_or_facebook', // Can be inferred from context if needed
+            provider: 'instagram', // Specifically handling Instagram callback here
             code: code,
+            redirect_uri: redirectUri, // Backend needs this to exchange code for token
             app_user: {
               id: user.id,
               email: user.email,
@@ -76,10 +84,18 @@ const OAuthCallback: React.FC = () => {
 
           if (response.ok) {
             setSendStatus('success');
-            setApiResponse('Successfully transmitted credentials to server.');
+            // Try to parse JSON to display details if the server returns them
+            try {
+                const json = await response.json();
+                setBackendData(json);
+                setApiResponse('Successfully exchanged code. See Server Response details below.');
+            } catch (e) {
+                setApiResponse('Successfully transmitted credentials to server.');
+            }
           } else {
             setSendStatus('error');
-            setApiResponse(`Server Error: ${response.status} ${response.statusText}`);
+            const text = await response.text();
+            setApiResponse(`Server Error: ${response.status} - ${text}`);
           }
         } catch (err: any) {
           setSendStatus('error');
@@ -94,7 +110,7 @@ const OAuthCallback: React.FC = () => {
   // Inject status into the view description
   let statusMessage = "";
   if (sendStatus === 'sending') statusMessage = "Sending credentials to server...";
-  if (sendStatus === 'success') statusMessage = "Credentials successfully saved to backend.";
+  if (sendStatus === 'success') statusMessage = apiResponse;
   if (sendStatus === 'error') statusMessage = "Failed to sync with backend: " + apiResponse;
 
   return (
@@ -102,10 +118,10 @@ const OAuthCallback: React.FC = () => {
         code={code}
         error={error}
         errorDescription={errorDescription || statusMessage}
+        backendResponse={backendData}
         fullUrl={window.location.href}
         onBack={() => {
-            // Determine where to go back based on history or default to dashboard
-            window.location.href = '/instagram'; // Defaulting to Instagram as that's the likely source
+            window.location.href = '/instagram'; 
         }} 
     />
   );
@@ -119,9 +135,13 @@ const App: React.FC = () => {
           {/* Public Routes */}
           <Route path="/login" element={<LoginPage />} />
           
-          {/* Callback route must be inside AuthProvider to access user context */}
+          {/* Callback route */}
           <Route path="/oauth" element={<OAuthCallback />} />
           <Route path="/oauth.html" element={<OAuthCallback />} />
+
+          {/* Webhook Help Routes (Publicly accessible to guide user/developers) */}
+          <Route path="/webhook/facebook/data-deletion" element={<WebhookHandlerPage />} />
+          <Route path="/webhook/facebook/deauthorize" element={<WebhookHandlerPage />} />
 
           {/* Protected Routes */}
           <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
