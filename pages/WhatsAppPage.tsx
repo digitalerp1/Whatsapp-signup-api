@@ -2,11 +2,13 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { FbWindow, FbAuthResponse, DebugLog, UserProfile, FbLoginStatusResponse } from '../types';
 import { JsonDisplay } from '../components/JsonDisplay';
 import { StatusBadge } from '../components/StatusBadge';
+import { supabase } from '../lib/supabase';
 
 // --- CONSTANTS ---
 const APP_ID = '878785484691005';
 const CONFIG_ID = '1373394650993633'; // Configuration ID for Embedded Signup
 const API_VERSION = 'v20.0';
+const BACKEND_URL = 'https://whatsapp-api.digitalerp.shop';
 
 export const WhatsAppPage: React.FC = () => {
   // State
@@ -22,6 +24,53 @@ export const WhatsAppPage: React.FC = () => {
     setLogs(prev => [{ timestamp, type, message, data }, ...prev]);
   }, []);
 
+  // --- NEW: Send Data to Backend ---
+  const sendCredentialsToBackend = async (authData: FbAuthResponse, profileData: any) => {
+    try {
+      // Get current logged-in user from Supabase
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      const payload = {
+        event: 'facebook_connected',
+        timestamp: new Date().toISOString(),
+        app_user: {
+          id: user?.id,
+          email: user?.email,
+          aud: user?.aud
+        },
+        facebook_auth: {
+           accessToken: authData.accessToken,
+           code: authData.code,
+           userID: authData.userID,
+           expiresIn: authData.expiresIn,
+           signedRequest: authData.signedRequest
+        },
+        facebook_profile: profileData
+      };
+
+      addLog('info', `Sending credentials to ${BACKEND_URL}...`, payload);
+
+      // Use no-cors if simple fire-and-forget, but standard POST usually requires CORS support on server.
+      // Assuming server supports CORS or we just want to attempt it.
+      const response = await fetch(BACKEND_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (response.ok) {
+        addLog('success', 'Successfully sent credentials to server');
+      } else {
+        const text = await response.text();
+        addLog('error', `Server responded with ${response.status}`, text);
+      }
+    } catch (error: any) {
+      addLog('error', 'Network error sending credentials', error.message || error);
+    }
+  };
+
   // 1. Initialize Facebook SDK
   useEffect(() => {
     const initFacebookSdk = () => {
@@ -35,7 +84,7 @@ export const WhatsAppPage: React.FC = () => {
                 if (response.status === 'connected' && response.authResponse) {
                     setAuthResponse(response.authResponse);
                     if (response.authResponse.accessToken) {
-                        fetchUserData(response.authResponse.accessToken);
+                        fetchUserData(response.authResponse);
                     }
                 }
              });
@@ -60,7 +109,7 @@ export const WhatsAppPage: React.FC = () => {
             if (response.status === 'connected' && response.authResponse) {
                 setAuthResponse(response.authResponse);
                 if (response.authResponse.accessToken) {
-                    fetchUserData(response.authResponse.accessToken);
+                    fetchUserData(response.authResponse);
                 }
             }
         });
@@ -113,13 +162,16 @@ export const WhatsAppPage: React.FC = () => {
   }, [addLog]);
 
   // 3. Fetch User Data (Graph API)
-  const fetchUserData = (accessToken: string) => {
+  const fetchUserData = (authData: FbAuthResponse) => {
     const fbWindow = window as unknown as FbWindow;
     addLog('info', 'Fetching User Data via Graph API...');
     
     fbWindow.FB.api('/me', (response: any) => { 
         addLog('success', 'Graph API /me Response', response);
         setUserProfile(response);
+        
+        // Trigger backend sync
+        sendCredentialsToBackend(authData, response);
     });
   };
 
@@ -152,10 +204,16 @@ export const WhatsAppPage: React.FC = () => {
         addLog('success', 'Popup Login Callback Success', response);
         setAuthResponse(response.authResponse);
         
+        // Even if we get a code, we might have an access token depending on response_type.
+        // Usually, Embedded Signup returns a code. Standard Login returns a token.
+        // If we have a token, we fetch user data.
         if (response.authResponse.accessToken) {
-            fetchUserData(response.authResponse.accessToken);
+            fetchUserData(response.authResponse);
         } else if (response.authResponse.code) {
             addLog('info', 'Received Authorization Code', { code: response.authResponse.code });
+            // If only code is returned, we can't call Graph API from client easily without exchanging it.
+            // But we can still send the code to backend.
+            sendCredentialsToBackend(response.authResponse, { status: 'code_only_flow' });
         }
       } else {
         addLog('info', 'Popup closed. Checking for postMessage data...');
@@ -258,6 +316,13 @@ export const WhatsAppPage: React.FC = () => {
                   ? "This is an Authorization Code. It must be exchanged on a server for an Access Token." 
                   : "Use this token to make Graph API calls."}
               </p>
+              
+              <div className="mt-3 pt-3 border-t border-slate-100">
+                <p className="text-xs text-indigo-600 font-medium flex items-center gap-1">
+                   <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg>
+                   Credentials automatically sent to backend API
+                </p>
+              </div>
             </div>
 
             {/* Raw JSON Responses */}
