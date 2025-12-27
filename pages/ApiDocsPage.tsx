@@ -146,7 +146,7 @@ export const ApiDocsPage: React.FC = () => {
                 <h3 className="text-sm font-bold text-slate-700 mb-2">Endpoint 1: Data Deletion</h3>
                 <code className="block bg-slate-800 text-white p-2 rounded text-xs mb-2">/webhook/facebook/data-deletion</code>
                 <p className="text-xs text-slate-500">
-                    Received when a user removes the app via Facebook Settings > Apps and Websites > Remove > Remove Data.
+                    Received when a user removes the app via Facebook Settings &gt; Apps and Websites &gt; Remove &gt; Remove Data.
                 </p>
              </div>
              <div className="flex-1">
