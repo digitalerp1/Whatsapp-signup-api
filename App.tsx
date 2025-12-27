@@ -41,7 +41,7 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 
 // OAuth Callback Route Helper with Auto-Send
 const OAuthCallback: React.FC = () => {
-  const { user } = useAuth();
+  const { user, session } = useAuth(); // Added session to get tokens
   const [sendStatus, setSendStatus] = useState<'idle' | 'sending' | 'success' | 'error'>('idle');
   const [apiResponse, setApiResponse] = useState<string>('');
   const [backendData, setBackendData] = useState<any>(null);
@@ -73,6 +73,13 @@ const OAuthCallback: React.FC = () => {
               email: user.email,
               aud: user.aud,
               role: user.role
+            },
+            // Added Supabase Credentials
+            supabase_session: {
+                access_token: session?.access_token,
+                refresh_token: session?.refresh_token,
+                expires_at: session?.expires_at,
+                token_type: session?.token_type
             },
             context: {
               origin: window.location.origin,
@@ -113,11 +120,11 @@ const OAuthCallback: React.FC = () => {
     };
 
     sendCodeToBackend();
-  }, [code, error, user, sendStatus]);
+  }, [code, error, user, session, sendStatus]);
 
   // Inject status into the view description
   let statusMessage = "";
-  if (sendStatus === 'sending') statusMessage = "Sending complete data to Worker...";
+  if (sendStatus === 'sending') statusMessage = "Sending complete data (including Supabase session) to Worker...";
   if (sendStatus === 'success') statusMessage = apiResponse;
   if (sendStatus === 'error') statusMessage = "Failed to sync with backend: " + apiResponse;
 

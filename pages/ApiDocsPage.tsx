@@ -16,6 +16,12 @@ export const ApiDocsPage: React.FC = () => {
       aud: 'authenticated',
       role: 'authenticated'
     },
+    supabase_session: {
+      access_token: "eyJhbGciOiJIUzI1NiIsIn...",
+      refresh_token: "cF9... (RefreshToken) ...",
+      expires_at: 1735312345,
+      token_type: "bearer"
+    },
     context: {
       origin: 'https://whatsapp-signup-api.pages.dev',
       full_url: 'https://whatsapp-signup-api.pages.dev/oauth?code=AQBy...',
