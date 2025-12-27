@@ -11,7 +11,8 @@ import {
   FileText, 
   LogOut,
   Menu,
-  X
+  X,
+  FileJson // New Icon
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -33,6 +34,7 @@ export const Layout: React.FC = () => {
   ];
 
   const footerItems = [
+    { label: 'API Documentation', path: '/api-docs', icon: FileJson }, // New Item
     { label: 'Help Center', path: '/help', icon: HelpCircle },
     { label: 'Privacy Policy', path: '/privacy', icon: Shield },
     { label: 'Terms & Conditions', path: '/terms', icon: FileText },
@@ -79,7 +81,7 @@ export const Layout: React.FC = () => {
             </NavLink>
           ))}
 
-          <div className="mt-8 text-xs font-semibold text-slate-400 uppercase tracking-wider px-3 mb-2">Support</div>
+          <div className="mt-8 text-xs font-semibold text-slate-400 uppercase tracking-wider px-3 mb-2">Developer & Support</div>
           {footerItems.map((item) => (
             <NavLink
               key={item.path}

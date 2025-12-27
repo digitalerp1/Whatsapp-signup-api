@@ -10,13 +10,15 @@ import { FacebookPage } from './pages/FacebookPage';
 import { HelpPage } from './pages/HelpPage';
 import { PrivacyPage } from './pages/PrivacyPage';
 import { TermsPage } from './pages/TermsPage';
-import { WebhookHandlerPage } from './pages/WebhookHandlerPage'; // New Import
+import { WebhookHandlerPage } from './pages/WebhookHandlerPage';
+import { ApiDocsPage } from './pages/ApiDocsPage'; // New Import
 import { CallbackView } from './components/CallbackView';
 import { Loader2 } from 'lucide-react';
 import { supabase } from './lib/supabase';
 
 // Constants
-const BACKEND_URL = 'https://whatsapp-api.digitalerp.shop';
+const DEFAULT_BACKEND_URL = 'https://whatsapp-api.digitalerp.shop';
+const WORKER_BACKEND_URL = 'https://api.teamdigitalerp.workers.dev';
 
 // Protected Route Wrapper
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -59,22 +61,28 @@ const OAuthCallback: React.FC = () => {
           const origin = isLocal ? window.location.origin : 'https://whatsapp-signup-api.pages.dev';
           const redirectUri = `${origin}/oauth`;
 
+          // Construct Complete Data Payload
           const payload = {
             event: 'oauth_callback_received',
             timestamp: new Date().toISOString(),
-            provider: 'instagram', // Specifically handling Instagram callback here
-            code: code,
-            redirect_uri: redirectUri, // Backend needs this to exchange code for token
+            provider: 'instagram',
+            code: code, // The temporary authorization code
+            redirect_uri: redirectUri, // Required for the backend to exchange the code
             app_user: {
               id: user.id,
               email: user.email,
-              aud: user.aud
+              aud: user.aud,
+              role: user.role
             },
-            origin: window.location.origin,
-            full_url: window.location.href
+            context: {
+              origin: window.location.origin,
+              full_url: window.location.href,
+              user_agent: navigator.userAgent
+            }
           };
 
-          const response = await fetch(BACKEND_URL, {
+          // Sending to the specific Worker URL as requested
+          const response = await fetch(WORKER_BACKEND_URL, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -88,14 +96,14 @@ const OAuthCallback: React.FC = () => {
             try {
                 const json = await response.json();
                 setBackendData(json);
-                setApiResponse('Successfully exchanged code. See Server Response details below.');
+                setApiResponse('Successfully transmitted data to Worker. See response below.');
             } catch (e) {
-                setApiResponse('Successfully transmitted credentials to server.');
+                setApiResponse('Successfully transmitted credentials to Worker.');
             }
           } else {
             setSendStatus('error');
             const text = await response.text();
-            setApiResponse(`Server Error: ${response.status} - ${text}`);
+            setApiResponse(`Worker Error: ${response.status} - ${text}`);
           }
         } catch (err: any) {
           setSendStatus('error');
@@ -109,7 +117,7 @@ const OAuthCallback: React.FC = () => {
 
   // Inject status into the view description
   let statusMessage = "";
-  if (sendStatus === 'sending') statusMessage = "Sending credentials to server...";
+  if (sendStatus === 'sending') statusMessage = "Sending complete data to Worker...";
   if (sendStatus === 'success') statusMessage = apiResponse;
   if (sendStatus === 'error') statusMessage = "Failed to sync with backend: " + apiResponse;
 
@@ -139,7 +147,7 @@ const App: React.FC = () => {
           <Route path="/oauth" element={<OAuthCallback />} />
           <Route path="/oauth.html" element={<OAuthCallback />} />
 
-          {/* Webhook Help Routes (Publicly accessible to guide user/developers) */}
+          {/* Webhook Help Routes (Publicly accessible) */}
           <Route path="/webhook/facebook/data-deletion" element={<WebhookHandlerPage />} />
           <Route path="/webhook/facebook/deauthorize" element={<WebhookHandlerPage />} />
 
@@ -149,6 +157,9 @@ const App: React.FC = () => {
             <Route path="/whatsapp" element={<WhatsAppPage />} />
             <Route path="/instagram" element={<InstagramPage />} />
             <Route path="/facebook" element={<FacebookPage />} />
+            
+            {/* Documentation & Support */}
+            <Route path="/api-docs" element={<ApiDocsPage />} />
             <Route path="/help" element={<HelpPage />} />
             <Route path="/privacy" element={<PrivacyPage />} />
             <Route path="/terms" element={<TermsPage />} />
