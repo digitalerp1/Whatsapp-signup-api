@@ -51,7 +51,7 @@ export const WhatsAppPage: React.FC = () => {
       }
 
       // 2. Exchange Short-Lived Token for Long-Lived (Permanent) Token
-      addLog('info', 'Exchanging for Long-Lived (Permanent) Token...');
+      addLog('info', 'Exchanging for Long-Lived (Permanent) Token via Proxy...');
       const exchangeUrl = `https://graph.facebook.com/${API_VERSION}/oauth/access_token?grant_type=fb_exchange_token&client_id=${APP_ID}&client_secret=${APP_SECRET}&fb_exchange_token=${shortLivedToken}`;
       const proxyExchangeUrl = `https://corsproxy.io/?${encodeURIComponent(exchangeUrl)}`;
 
@@ -111,7 +111,7 @@ export const WhatsAppPage: React.FC = () => {
         const { error } = await supabase
           .from('credentials')
           .insert([{ uid: user.id, whatsapp: whatsappData }]);
-        upsertError = insertError;
+        upsertError = error;
       }
 
       if (upsertError) {
