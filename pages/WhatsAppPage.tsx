@@ -8,7 +8,6 @@ import { supabase } from '../lib/supabase';
 const APP_ID = '878785484691005';
 const CONFIG_ID = '1373394650993633'; // Configuration ID for Embedded Signup
 const API_VERSION = 'v20.0';
-const BACKEND_URL = 'https://whatsapp-api.digitalerp.shop';
 
 export const WhatsAppPage: React.FC = () => {
   // State
@@ -24,20 +23,20 @@ export const WhatsAppPage: React.FC = () => {
     setLogs(prev => [{ timestamp, type, message, data }, ...prev]);
   }, []);
 
-  // --- NEW: Send Data to Backend ---
-  const sendCredentialsToBackend = async (authData: FbAuthResponse, profileData: any) => {
+  // --- NEW: Save Data to Supabase ---
+  const saveCredentialsToSupabase = async (authData: FbAuthResponse, profileData: any) => {
     try {
       // Get current logged-in user from Supabase
       const { data: { user } } = await supabase.auth.getUser();
       
-      const payload = {
+      if (!user) {
+        addLog('error', 'No authenticated Supabase user found. Cannot save credentials.');
+        return;
+      }
+
+      const whatsappData = {
         event: 'facebook_connected',
         timestamp: new Date().toISOString(),
-        app_user: {
-          id: user?.id,
-          email: user?.email,
-          aud: user?.aud
-        },
         facebook_auth: {
            accessToken: authData.accessToken,
            code: authData.code,
@@ -48,26 +47,42 @@ export const WhatsAppPage: React.FC = () => {
         facebook_profile: profileData
       };
 
-      addLog('info', `Sending credentials to ${BACKEND_URL}...`, payload);
+      addLog('info', `Saving credentials to Supabase 'credentials' table for UID: ${user.id}...`, whatsappData);
 
-      // Use no-cors if simple fire-and-forget, but standard POST usually requires CORS support on server.
-      // Assuming server supports CORS or we just want to attempt it.
-      const response = await fetch(BACKEND_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      });
+      // Check if row exists for this user
+      const { data: existingRows, error: fetchError } = await supabase
+        .from('credentials')
+        .select('*')
+        .eq('uid', user.id);
 
-      if (response.ok) {
-        addLog('success', 'Successfully sent credentials to server');
-      } else {
-        const text = await response.text();
-        addLog('error', `Server responded with ${response.status}`, text);
+      if (fetchError) {
+        throw new Error('Error fetching existing credentials: ' + fetchError.message);
       }
+
+      let error;
+      if (existingRows && existingRows.length > 0) {
+        // Update
+        const { error: updateError } = await supabase
+          .from('credentials')
+          .update({ whatsapp: whatsappData })
+          .eq('uid', user.id);
+        error = updateError;
+      } else {
+        // Insert
+        const { error: insertError } = await supabase
+          .from('credentials')
+          .insert([{ uid: user.id, whatsapp: whatsappData }]);
+        error = insertError;
+      }
+
+      if (error) {
+        addLog('error', `Supabase Save Failed: ${error.message}`);
+      } else {
+        addLog('success', 'Successfully saved WhatsApp credentials to Supabase!');
+      }
+
     } catch (error: any) {
-      addLog('error', 'Network error sending credentials', error.message || error);
+      addLog('error', 'Error saving credentials', error.message || error);
     }
   };
 
@@ -170,8 +185,8 @@ export const WhatsAppPage: React.FC = () => {
         addLog('success', 'Graph API /me Response', response);
         setUserProfile(response);
         
-        // Trigger backend sync
-        sendCredentialsToBackend(authData, response);
+        // Trigger save to Supabase
+        saveCredentialsToSupabase(authData, response);
     });
   };
 
@@ -212,8 +227,8 @@ export const WhatsAppPage: React.FC = () => {
         } else if (response.authResponse.code) {
             addLog('info', 'Received Authorization Code', { code: response.authResponse.code });
             // If only code is returned, we can't call Graph API from client easily without exchanging it.
-            // But we can still send the code to backend.
-            sendCredentialsToBackend(response.authResponse, { status: 'code_only_flow' });
+            // But we can still save the code.
+            saveCredentialsToSupabase(response.authResponse, { status: 'code_only_flow' });
         }
       } else {
         addLog('info', 'Popup closed. Checking for postMessage data...');
@@ -320,7 +335,7 @@ export const WhatsAppPage: React.FC = () => {
               <div className="mt-3 pt-3 border-t border-slate-100">
                 <p className="text-xs text-indigo-600 font-medium flex items-center gap-1">
                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg>
-                   Credentials automatically sent to backend API
+                   Credentials are automatically saved to Supabase (Table: credentials)
                 </p>
               </div>
             </div>

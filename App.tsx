@@ -11,14 +11,14 @@ import { HelpPage } from './pages/HelpPage';
 import { PrivacyPage } from './pages/PrivacyPage';
 import { TermsPage } from './pages/TermsPage';
 import { WebhookHandlerPage } from './pages/WebhookHandlerPage';
-import { ApiDocsPage } from './pages/ApiDocsPage'; // New Import
+import { ApiDocsPage } from './pages/ApiDocsPage';
 import { CallbackView } from './components/CallbackView';
 import { Loader2 } from 'lucide-react';
 import { supabase } from './lib/supabase';
 
 // Constants
-const DEFAULT_BACKEND_URL = 'https://whatsapp-api.digitalerp.shop';
-const WORKER_BACKEND_URL = 'https://api.teamdigitalerp.workers.dev';
+const INSTAGRAM_APP_ID = '1176336757947257';
+const INSTAGRAM_APP_SECRET = '47d99b25cac2acee7f96970e375b7125'; // Stored client-side as requested
 
 // Protected Route Wrapper
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -39,101 +39,145 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   return <>{children}</>;
 };
 
-// OAuth Callback Route Helper with Auto-Send
+// OAuth Callback Route Helper with Client-Side Exchange and Supabase Storage
 const OAuthCallback: React.FC = () => {
-  const { user, session } = useAuth(); // Added session to get tokens
-  const [sendStatus, setSendStatus] = useState<'idle' | 'sending' | 'success' | 'error'>('idle');
-  const [apiResponse, setApiResponse] = useState<string>('');
-  const [backendData, setBackendData] = useState<any>(null);
+  const { user } = useAuth();
+  const [status, setStatus] = useState<'idle' | 'processing' | 'success' | 'error'>('idle');
+  const [log, setLog] = useState<string>('');
+  const [resultData, setResultData] = useState<any>(null);
 
   const params = new URLSearchParams(window.location.search);
   const code = params.get('code') || '';
   const error = params.get('error') || params.get('error_code') || '';
   const errorDescription = params.get('error_message') || params.get('error_description') || '';
 
+  const addToLog = (msg: string) => setLog(prev => prev + '\n' + msg);
+
   useEffect(() => {
-    const sendCodeToBackend = async () => {
-      if (code && !error && user && sendStatus === 'idle') {
-        setSendStatus('sending');
+    const processCallback = async () => {
+      if (code && !error && user && status === 'idle') {
+        setStatus('processing');
+        addToLog('Starting Token Exchange Process...');
+
         try {
-          // Determine the redirect URI exactly as it was calculated in InstagramPage
+          // 1. Determine Redirect URI
           const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
           const origin = isLocal ? window.location.origin : 'https://whatsapp-signup-api.pages.dev';
-          const redirectUri = `${origin}/oauth`;
+          const redirectUri = `${origin}/oauth`; // Must match exactly what was sent in InstagramPage
 
-          // Construct Complete Data Payload
-          const payload = {
-            event: 'oauth_callback_received',
-            timestamp: new Date().toISOString(),
-            provider: 'instagram',
-            code: code, // The temporary authorization code
-            redirect_uri: redirectUri, // Required for the backend to exchange the code
-            app_user: {
-              id: user.id,
-              email: user.email,
-              aud: user.aud,
-              role: user.role
-            },
-            // Added Supabase Credentials
-            supabase_session: {
-                access_token: session?.access_token,
-                refresh_token: session?.refresh_token,
-                expires_at: session?.expires_at,
-                token_type: session?.token_type
-            },
-            context: {
-              origin: window.location.origin,
-              full_url: window.location.href,
-              user_agent: navigator.userAgent
-            }
-          };
+          addToLog(`Using Redirect URI: ${redirectUri}`);
 
-          // Sending to the specific Worker URL as requested
-          const response = await fetch(WORKER_BACKEND_URL, {
+          // 2. Exchange Code for Short-Lived Token
+          addToLog('Exchanging code for short-lived token...');
+          
+          const formData = new FormData();
+          formData.append('client_id', INSTAGRAM_APP_ID);
+          formData.append('client_secret', INSTAGRAM_APP_SECRET);
+          formData.append('grant_type', 'authorization_code');
+          formData.append('redirect_uri', redirectUri);
+          formData.append('code', code);
+
+          const shortRes = await fetch('https://api.instagram.com/oauth/access_token', {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(payload),
+            body: formData
           });
 
-          if (response.ok) {
-            setSendStatus('success');
-            // Try to parse JSON to display details if the server returns them
-            try {
-                const json = await response.json();
-                setBackendData(json);
-                setApiResponse('Successfully transmitted data to Worker. See response below.');
-            } catch (e) {
-                setApiResponse('Successfully transmitted credentials to Worker.');
-            }
-          } else {
-            setSendStatus('error');
-            const text = await response.text();
-            setApiResponse(`Worker Error: ${response.status} - ${text}`);
+          if (!shortRes.ok) {
+            const errText = await shortRes.text();
+            throw new Error(`Short-lived token failed: ${errText}`);
           }
+
+          const shortData = await shortRes.json();
+          addToLog('Received Short-lived Token.');
+
+          // 3. Exchange Short-Lived for Long-Lived (Permanent) Token
+          addToLog('Exchanging for Long-lived (Permanent) token...');
+          
+          const longUrl = new URL('https://graph.instagram.com/access_token');
+          longUrl.searchParams.append('grant_type', 'ig_exchange_token');
+          longUrl.searchParams.append('client_secret', INSTAGRAM_APP_SECRET);
+          longUrl.searchParams.append('access_token', shortData.access_token);
+
+          const longRes = await fetch(longUrl.toString());
+          
+          if (!longRes.ok) {
+             const errText = await longRes.text();
+             throw new Error(`Long-lived token exchange failed: ${errText}`);
+          }
+
+          const longData = await longRes.json();
+          addToLog('Received Long-lived Token.');
+
+          // 4. Prepare Data for Supabase
+          const instagramData = {
+            short_lived: shortData,
+            long_lived: longData,
+            user_profile_id: shortData.user_id, // Basic Display usually returns user_id
+            updated_at: new Date().toISOString()
+          };
+          
+          setResultData(instagramData);
+
+          // 5. Save to Supabase 'credentials' table
+          addToLog('Saving to Supabase credentials table...');
+          
+          // Check if row exists for this user
+          const { data: existingRows, error: fetchError } = await supabase
+            .from('credentials')
+            .select('*')
+            .eq('uid', user.id);
+
+          if (fetchError) throw fetchError;
+
+          let upsertError;
+          
+          if (existingRows && existingRows.length > 0) {
+            // Update existing
+            const { error } = await supabase
+              .from('credentials')
+              .update({ instragram: instagramData })
+              .eq('uid', user.id);
+            upsertError = error;
+          } else {
+            // Insert new
+            const { error } = await supabase
+              .from('credentials')
+              .insert([
+                { 
+                  uid: user.id, 
+                  instragram: instagramData 
+                }
+              ]);
+             upsertError = error;
+          }
+
+          if (upsertError) throw upsertError;
+
+          addToLog('Successfully saved to Supabase!');
+          setStatus('success');
+
         } catch (err: any) {
-          setSendStatus('error');
-          setApiResponse(`Network Error: ${err.message}`);
+          console.error(err);
+          addToLog(`Error: ${err.message}`);
+          setStatus('error');
         }
       }
     };
 
-    sendCodeToBackend();
-  }, [code, error, user, session, sendStatus]);
+    processCallback();
+  }, [code, error, user, status]);
 
-  // Inject status into the view description
-  let statusMessage = "";
-  if (sendStatus === 'sending') statusMessage = "Sending complete data (including Supabase session) to Worker...";
-  if (sendStatus === 'success') statusMessage = apiResponse;
-  if (sendStatus === 'error') statusMessage = "Failed to sync with backend: " + apiResponse;
+  // Status Message for UI
+  let statusMessage = log;
+  if (status === 'success') statusMessage = "Success! Permanent Token saved to Supabase.\n" + log;
+  if (status === 'error') statusMessage = "Failed.\n" + log;
 
   return (
     <CallbackView 
         code={code}
         error={error}
         errorDescription={errorDescription || statusMessage}
-        backendResponse={backendData}
+        backendResponse={resultData}
         fullUrl={window.location.href}
         onBack={() => {
             window.location.href = '/instagram'; 
