@@ -45,7 +45,8 @@ const OAuthCallback: React.FC = () => {
   const [status, setStatus] = useState<'idle' | 'processing' | 'success' | 'error'>('idle');
   const [log, setLog] = useState<string>('');
   const [resultData, setResultData] = useState<any>(null);
-  const [accessToken, setAccessToken] = useState<string>(''); // For UI display
+  const [accessToken, setAccessToken] = useState<string>(''); // Short lived
+  const [permanentToken, setPermanentToken] = useState<string>(''); // Long lived (Permanent)
 
   const params = new URLSearchParams(window.location.search);
   const code = params.get('code') || '';
@@ -70,27 +71,32 @@ const OAuthCallback: React.FC = () => {
           addToLog(`Using Redirect URI: ${redirectUri}`);
 
           // 2. Exchange Code for Short-Lived Token
-          // NOTE: We use corsproxy.io to bypass the browser's CORS restriction on the Instagram API
+          // NOTE: Switching to codetabs proxy + URLSearchParams to avoid Cloudflare blocks on corsproxy.io
           addToLog('Exchanging code for short-lived token via Proxy...');
           
-          const formData = new FormData();
-          formData.append('client_id', INSTAGRAM_APP_ID);
-          formData.append('client_secret', INSTAGRAM_APP_SECRET);
-          formData.append('grant_type', 'authorization_code');
-          formData.append('redirect_uri', redirectUri);
-          formData.append('code', code);
-
           const shortLivedUrl = 'https://api.instagram.com/oauth/access_token';
-          const proxyUrlShort = `https://corsproxy.io/?${encodeURIComponent(shortLivedUrl)}`;
+          // Codetabs handles POST requests better than corsproxy.io for some APIs
+          const proxyUrlShort = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(shortLivedUrl)}`;
+
+          // Use URLSearchParams for x-www-form-urlencoded body (Standard for OAuth)
+          const bodyParams = new URLSearchParams();
+          bodyParams.append('client_id', INSTAGRAM_APP_ID);
+          bodyParams.append('client_secret', INSTAGRAM_APP_SECRET);
+          bodyParams.append('grant_type', 'authorization_code');
+          bodyParams.append('redirect_uri', redirectUri);
+          bodyParams.append('code', code);
 
           const shortRes = await fetch(proxyUrlShort, {
             method: 'POST',
-            body: formData
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: bodyParams
           });
 
           if (!shortRes.ok) {
             const errText = await shortRes.text();
-            throw new Error(`Short-lived token failed: ${errText}`);
+            throw new Error(`Short-lived token failed: ${errText.substring(0, 100)}...`);
           }
 
           const shortData = await shortRes.json();
@@ -99,7 +105,7 @@ const OAuthCallback: React.FC = () => {
           if (shortData.access_token) {
             setAccessToken(shortData.access_token);
           } else {
-             throw new Error('No access_token in short-lived response');
+             throw new Error('No access_token in short-lived response: ' + JSON.stringify(shortData));
           }
 
           // 3. Exchange Short-Lived for Long-Lived (Permanent) Token
@@ -110,6 +116,7 @@ const OAuthCallback: React.FC = () => {
           longUrl.searchParams.append('client_secret', INSTAGRAM_APP_SECRET);
           longUrl.searchParams.append('access_token', shortData.access_token);
 
+          // For GET requests, we can use corsproxy.io or codetabs
           const proxyUrlLong = `https://corsproxy.io/?${encodeURIComponent(longUrl.toString())}`;
 
           const longRes = await fetch(proxyUrlLong);
@@ -121,6 +128,10 @@ const OAuthCallback: React.FC = () => {
 
           const longData = await longRes.json();
           addToLog('Received Long-lived Token.');
+          
+          if (longData.access_token) {
+            setPermanentToken(longData.access_token);
+          }
 
           // 4. Prepare Data for Supabase
           const instagramData = {
@@ -189,6 +200,7 @@ const OAuthCallback: React.FC = () => {
     <CallbackView 
         code={code}
         accessToken={accessToken}
+        permanentToken={permanentToken}
         error={error}
         errorDescription={errorDescription || statusMessage}
         backendResponse={resultData}

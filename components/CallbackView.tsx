@@ -4,6 +4,7 @@ import { JsonDisplay } from './JsonDisplay';
 interface CallbackViewProps {
   code: string;
   accessToken?: string;
+  permanentToken?: string;
   error?: string;
   errorDescription?: string;
   fullUrl: string;
@@ -11,7 +12,7 @@ interface CallbackViewProps {
   onBack: () => void;
 }
 
-export const CallbackView: React.FC<CallbackViewProps> = ({ code, accessToken, error, errorDescription, fullUrl, backendResponse, onBack }) => {
+export const CallbackView: React.FC<CallbackViewProps> = ({ code, accessToken, permanentToken, error, errorDescription, fullUrl, backendResponse, onBack }) => {
   const isSuccess = !!code && !error;
   const allParams = Object.fromEntries(new URLSearchParams(window.location.search));
 
@@ -70,7 +71,7 @@ export const CallbackView: React.FC<CallbackViewProps> = ({ code, accessToken, e
               <div className="relative">
                 <textarea 
                   readOnly 
-                  className="w-full h-20 bg-green-50 border border-green-200 rounded-lg p-3 text-sm font-mono text-green-800 focus:outline-none focus:ring-2 focus:ring-green-500"
+                  className="w-full h-20 bg-slate-50 border border-slate-200 rounded-lg p-3 text-sm font-mono text-slate-600 focus:outline-none focus:ring-2 focus:ring-slate-500"
                   value={code}
                 />
               </div>
@@ -80,7 +81,7 @@ export const CallbackView: React.FC<CallbackViewProps> = ({ code, accessToken, e
             </div>
           )}
 
-          {/* New Access Token Display */}
+          {/* Short Lived Token */}
           {accessToken && (
             <div className="mb-6">
               <label className="block text-xs font-bold text-slate-500 uppercase mb-2">
@@ -94,7 +95,27 @@ export const CallbackView: React.FC<CallbackViewProps> = ({ code, accessToken, e
                 />
               </div>
               <p className="text-xs text-slate-400 mt-2">
-                Exchanged from Code. Valid for ~1 hour. Used to generate the Permanent Token.
+                Exchanged from Code. Valid for ~1 hour.
+              </p>
+            </div>
+          )}
+
+          {/* PERMANENT TOKEN - HIGHLIGHTED */}
+          {permanentToken && (
+            <div className="mb-6">
+              <label className="block text-xs font-bold text-green-600 uppercase mb-2 flex items-center gap-2">
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" /></svg>
+                Permanent Access Token (Long-Lived)
+              </label>
+              <div className="relative">
+                <textarea 
+                  readOnly 
+                  className="w-full h-32 bg-green-50 border-2 border-green-400 rounded-lg p-3 text-sm font-mono text-green-900 focus:outline-none focus:ring-2 focus:ring-green-500 shadow-sm"
+                  value={permanentToken}
+                />
+              </div>
+              <p className="text-xs text-green-600 mt-2 font-semibold">
+                This is the token you need! It is valid for 60 days. It has been saved to your Supabase database.
               </p>
             </div>
           )}
