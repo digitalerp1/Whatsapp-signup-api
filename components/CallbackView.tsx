@@ -3,6 +3,7 @@ import { JsonDisplay } from './JsonDisplay';
 
 interface CallbackViewProps {
   code: string;
+  accessToken?: string;
   error?: string;
   errorDescription?: string;
   fullUrl: string;
@@ -10,7 +11,7 @@ interface CallbackViewProps {
   onBack: () => void;
 }
 
-export const CallbackView: React.FC<CallbackViewProps> = ({ code, error, errorDescription, fullUrl, backendResponse, onBack }) => {
+export const CallbackView: React.FC<CallbackViewProps> = ({ code, accessToken, error, errorDescription, fullUrl, backendResponse, onBack }) => {
   const isSuccess = !!code && !error;
   const allParams = Object.fromEntries(new URLSearchParams(window.location.search));
 
@@ -49,7 +50,7 @@ export const CallbackView: React.FC<CallbackViewProps> = ({ code, error, errorDe
           </p>
           
           {errorDescription && (
-             <p className={`mt-4 p-3 rounded-lg text-sm font-mono inline-block ${
+             <p className={`mt-4 p-3 rounded-lg text-sm font-mono inline-block whitespace-pre-wrap ${
                isSuccess ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
              }`}>
                {errorDescription}
@@ -69,12 +70,31 @@ export const CallbackView: React.FC<CallbackViewProps> = ({ code, error, errorDe
               <div className="relative">
                 <textarea 
                   readOnly 
-                  className="w-full h-24 bg-green-50 border border-green-200 rounded-lg p-4 text-sm font-mono text-green-800 focus:outline-none focus:ring-2 focus:ring-green-500"
+                  className="w-full h-20 bg-green-50 border border-green-200 rounded-lg p-3 text-sm font-mono text-green-800 focus:outline-none focus:ring-2 focus:ring-green-500"
                   value={code}
                 />
               </div>
               <p className="text-xs text-slate-400 mt-2">
-                Send this code to your backend to exchange it for a permanent access token.
+                This code was received from the initial redirect.
+              </p>
+            </div>
+          )}
+
+          {/* New Access Token Display */}
+          {accessToken && (
+            <div className="mb-6">
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-2">
+                Temporary Access Token
+              </label>
+              <div className="relative">
+                <textarea 
+                  readOnly 
+                  className="w-full h-20 bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm font-mono text-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  value={accessToken}
+                />
+              </div>
+              <p className="text-xs text-slate-400 mt-2">
+                Exchanged from Code. Valid for ~1 hour. Used to generate the Permanent Token.
               </p>
             </div>
           )}
@@ -82,7 +102,7 @@ export const CallbackView: React.FC<CallbackViewProps> = ({ code, error, errorDe
           {/* New Backend Response Display */}
           {backendResponse && (
             <div className="mb-6">
-              <JsonDisplay title="Server Response (Token Exchange Details)" data={backendResponse} />
+              <JsonDisplay title="Full Token Exchange Data (Saved to Database)" data={backendResponse} />
             </div>
           )}
 

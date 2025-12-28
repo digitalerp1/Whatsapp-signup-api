@@ -1,5 +1,3 @@
-
-
 import React, { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -47,6 +45,7 @@ const OAuthCallback: React.FC = () => {
   const [status, setStatus] = useState<'idle' | 'processing' | 'success' | 'error'>('idle');
   const [log, setLog] = useState<string>('');
   const [resultData, setResultData] = useState<any>(null);
+  const [accessToken, setAccessToken] = useState<string>(''); // For UI display
 
   const params = new URLSearchParams(window.location.search);
   const code = params.get('code') || '';
@@ -96,6 +95,12 @@ const OAuthCallback: React.FC = () => {
 
           const shortData = await shortRes.json();
           addToLog('Received Short-lived Token.');
+          
+          if (shortData.access_token) {
+            setAccessToken(shortData.access_token);
+          } else {
+             throw new Error('No access_token in short-lived response');
+          }
 
           // 3. Exchange Short-Lived for Long-Lived (Permanent) Token
           addToLog('Exchanging for Long-lived (Permanent) token via Proxy...');
@@ -183,6 +188,7 @@ const OAuthCallback: React.FC = () => {
   return (
     <CallbackView 
         code={code}
+        accessToken={accessToken}
         error={error}
         errorDescription={errorDescription || statusMessage}
         backendResponse={resultData}
