@@ -39,7 +39,7 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   return <>{children}</>;
 };
 
-// OAuth Callback Route Helper with Client-Side Exchange and Supabase Storage
+// OAuth Callback Route Helper with Client-Side Exchange (via Proxy) and Supabase Storage
 const OAuthCallback: React.FC = () => {
   const { user } = useAuth();
   const [status, setStatus] = useState<'idle' | 'processing' | 'success' | 'error'>('idle');
@@ -55,20 +55,22 @@ const OAuthCallback: React.FC = () => {
 
   useEffect(() => {
     const processCallback = async () => {
+      // Ensure we only run this once per mount when code exists
       if (code && !error && user && status === 'idle') {
         setStatus('processing');
-        addToLog('Starting Token Exchange Process...');
+        addToLog('Starting Token Exchange Process (Frontend Proxy)...');
 
         try {
           // 1. Determine Redirect URI
           const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
           const origin = isLocal ? window.location.origin : 'https://whatsapp-signup-api.pages.dev';
-          const redirectUri = `${origin}/oauth`; // Must match exactly what was sent in InstagramPage
+          const redirectUri = `${origin}/oauth`; 
 
           addToLog(`Using Redirect URI: ${redirectUri}`);
 
           // 2. Exchange Code for Short-Lived Token
-          addToLog('Exchanging code for short-lived token...');
+          // NOTE: We use corsproxy.io to bypass the browser's CORS restriction on the Instagram API
+          addToLog('Exchanging code for short-lived token via Proxy...');
           
           const formData = new FormData();
           formData.append('client_id', INSTAGRAM_APP_ID);
@@ -77,7 +79,10 @@ const OAuthCallback: React.FC = () => {
           formData.append('redirect_uri', redirectUri);
           formData.append('code', code);
 
-          const shortRes = await fetch('https://api.instagram.com/oauth/access_token', {
+          const shortLivedUrl = 'https://api.instagram.com/oauth/access_token';
+          const proxyUrlShort = `https://corsproxy.io/?${encodeURIComponent(shortLivedUrl)}`;
+
+          const shortRes = await fetch(proxyUrlShort, {
             method: 'POST',
             body: formData
           });
@@ -91,14 +96,16 @@ const OAuthCallback: React.FC = () => {
           addToLog('Received Short-lived Token.');
 
           // 3. Exchange Short-Lived for Long-Lived (Permanent) Token
-          addToLog('Exchanging for Long-lived (Permanent) token...');
+          addToLog('Exchanging for Long-lived (Permanent) token via Proxy...');
           
           const longUrl = new URL('https://graph.instagram.com/access_token');
           longUrl.searchParams.append('grant_type', 'ig_exchange_token');
           longUrl.searchParams.append('client_secret', INSTAGRAM_APP_SECRET);
           longUrl.searchParams.append('access_token', shortData.access_token);
 
-          const longRes = await fetch(longUrl.toString());
+          const proxyUrlLong = `https://corsproxy.io/?${encodeURIComponent(longUrl.toString())}`;
+
+          const longRes = await fetch(proxyUrlLong);
           
           if (!longRes.ok) {
              const errText = await longRes.text();
@@ -112,16 +119,15 @@ const OAuthCallback: React.FC = () => {
           const instagramData = {
             short_lived: shortData,
             long_lived: longData,
-            user_profile_id: shortData.user_id, // Basic Display usually returns user_id
+            user_profile_id: shortData.user_id, 
             updated_at: new Date().toISOString()
           };
           
           setResultData(instagramData);
 
-          // 5. Save to Supabase 'credentials' table
+          // 5. Save to Supabase 'credentials' table (using 'instragram' column as per schema)
           addToLog('Saving to Supabase credentials table...');
           
-          // Check if row exists for this user
           const { data: existingRows, error: fetchError } = await supabase
             .from('credentials')
             .select('*')

@@ -10,7 +10,7 @@ export const ApiDocsPage: React.FC = () => {
         user_id: 1234567890
     },
     long_lived: {
-        access_token: "IGQWR... (Long Lived)",
+        access_token: "IGQWR... (Long Lived Permanent Token)",
         token_type: "bearer",
         expires_in: 5184000
     },
@@ -23,14 +23,20 @@ export const ApiDocsPage: React.FC = () => {
     event: 'facebook_connected',
     timestamp: '2025-10-24T10:15:00.000Z',
     facebook_auth: {
-      accessToken: 'EAAG...',
+      short_lived_token: 'EAAG... (Temporary)',
+      long_lived_token: 'EAAG... (Permanent/60 days)',
+      token_type: 'bearer',
+      expires_in: 5183999,
       userID: '1000123456789',
-      expiresIn: 5184000,
       signedRequest: 'XXXYYYZZZ...'
     },
     facebook_profile: {
       name: 'John Doe',
       id: '1000123456789'
+    },
+    raw_exchange_response: {
+        access_token: "EAAG...",
+        token_type: "bearer"
     }
   };
 

@@ -6,7 +6,8 @@ import { supabase } from '../lib/supabase';
 
 // --- CONSTANTS ---
 const APP_ID = '878785484691005';
-const CONFIG_ID = '1373394650993633'; // Configuration ID for Embedded Signup
+const APP_SECRET = '6ac762ed92939dedc239d479fbf15076'; // Client-side usage as requested
+const CONFIG_ID = '1373394650993633'; 
 const API_VERSION = 'v20.0';
 
 export const WhatsAppPage: React.FC = () => {
@@ -23,9 +24,47 @@ export const WhatsAppPage: React.FC = () => {
     setLogs(prev => [{ timestamp, type, message, data }, ...prev]);
   }, []);
 
-  // --- NEW: Save Data to Supabase ---
-  const saveCredentialsToSupabase = async (authData: FbAuthResponse, profileData: any) => {
+  // --- NEW: Token Exchange & Save Logic ---
+  const processAndSaveCredentials = async (authData: FbAuthResponse, profileData: any) => {
     try {
+      addLog('info', 'Starting Token Exchange Process...');
+
+      let shortLivedToken = authData.accessToken;
+
+      // 1. If we only have a code, exchange it for a user access token
+      if (!shortLivedToken && authData.code) {
+        addLog('info', 'Exchanging Auth Code for Access Token...');
+        const tokenUrl = `https://graph.facebook.com/${API_VERSION}/oauth/access_token?client_id=${APP_ID}&redirect_uri=${window.location.href}&client_secret=${APP_SECRET}&code=${authData.code}`;
+        const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(tokenUrl)}`;
+        
+        const res = await fetch(proxyUrl);
+        const data = await res.json();
+        
+        if (data.error) throw new Error('Code Exchange Failed: ' + data.error.message);
+        
+        shortLivedToken = data.access_token;
+        addLog('success', 'Obtained Access Token from Code');
+      }
+
+      if (!shortLivedToken) {
+        throw new Error('No Access Token available to exchange.');
+      }
+
+      // 2. Exchange Short-Lived Token for Long-Lived (Permanent) Token
+      addLog('info', 'Exchanging for Long-Lived (Permanent) Token...');
+      const exchangeUrl = `https://graph.facebook.com/${API_VERSION}/oauth/access_token?grant_type=fb_exchange_token&client_id=${APP_ID}&client_secret=${APP_SECRET}&fb_exchange_token=${shortLivedToken}`;
+      const proxyExchangeUrl = `https://corsproxy.io/?${encodeURIComponent(exchangeUrl)}`;
+
+      const exchangeRes = await fetch(proxyExchangeUrl);
+      const exchangeData = await exchangeRes.json();
+
+      if (exchangeData.error) {
+        throw new Error('Long-Lived Exchange Failed: ' + exchangeData.error.message);
+      }
+
+      addLog('success', 'Successfully generated Permanent Token!');
+
+      // 3. Prepare Data for Supabase
       // Get current logged-in user from Supabase
       const { data: { user } } = await supabase.auth.getUser();
       
@@ -38,51 +77,51 @@ export const WhatsAppPage: React.FC = () => {
         event: 'facebook_connected',
         timestamp: new Date().toISOString(),
         facebook_auth: {
-           accessToken: authData.accessToken,
-           code: authData.code,
+           short_lived_token: shortLivedToken,
+           long_lived_token: exchangeData.access_token, // The Permanent Token
+           token_type: exchangeData.token_type,
+           expires_in: exchangeData.expires_in, // Usually 60 days
            userID: authData.userID,
-           expiresIn: authData.expiresIn,
            signedRequest: authData.signedRequest
         },
-        facebook_profile: profileData
+        facebook_profile: profileData,
+        raw_exchange_response: exchangeData
       };
 
-      addLog('info', `Saving credentials to Supabase 'credentials' table for UID: ${user.id}...`, whatsappData);
+      addLog('info', `Saving credentials to Supabase 'credentials' table (column: whatsapp)...`, whatsappData);
 
-      // Check if row exists for this user
+      // 4. Save to Supabase
       const { data: existingRows, error: fetchError } = await supabase
         .from('credentials')
         .select('*')
         .eq('uid', user.id);
 
-      if (fetchError) {
-        throw new Error('Error fetching existing credentials: ' + fetchError.message);
-      }
+      if (fetchError) throw fetchError;
 
-      let error;
+      let upsertError;
       if (existingRows && existingRows.length > 0) {
         // Update
-        const { error: updateError } = await supabase
+        const { error } = await supabase
           .from('credentials')
           .update({ whatsapp: whatsappData })
           .eq('uid', user.id);
-        error = updateError;
+        upsertError = error;
       } else {
         // Insert
-        const { error: insertError } = await supabase
+        const { error } = await supabase
           .from('credentials')
           .insert([{ uid: user.id, whatsapp: whatsappData }]);
-        error = insertError;
+        upsertError = insertError;
       }
 
-      if (error) {
-        addLog('error', `Supabase Save Failed: ${error.message}`);
+      if (upsertError) {
+        addLog('error', `Supabase Save Failed: ${upsertError.message}`);
       } else {
         addLog('success', 'Successfully saved WhatsApp credentials to Supabase!');
       }
 
     } catch (error: any) {
-      addLog('error', 'Error saving credentials', error.message || error);
+      addLog('error', 'Process Error', error.message || error);
     }
   };
 
@@ -144,7 +183,7 @@ export const WhatsAppPage: React.FC = () => {
     initFacebookSdk();
   }, [addLog]);
 
-  // 2. Window Message Listener (CRITICAL for Embedded Signup Data)
+  // 2. Window Message Listener
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       if (typeof event.data === 'object' && event.data !== null) {
@@ -176,7 +215,7 @@ export const WhatsAppPage: React.FC = () => {
     return () => window.removeEventListener('message', handleMessage);
   }, [addLog]);
 
-  // 3. Fetch User Data (Graph API)
+  // 3. Fetch User Data & Start Exchange
   const fetchUserData = (authData: FbAuthResponse) => {
     const fbWindow = window as unknown as FbWindow;
     addLog('info', 'Fetching User Data via Graph API...');
@@ -185,12 +224,12 @@ export const WhatsAppPage: React.FC = () => {
         addLog('success', 'Graph API /me Response', response);
         setUserProfile(response);
         
-        // Trigger save to Supabase
-        saveCredentialsToSupabase(authData, response);
+        // TRIGGER THE EXCHANGE AND SAVE
+        processAndSaveCredentials(authData, response);
     });
   };
 
-  // 4. Login Handler (Popup Flow)
+  // 4. Login Handler
   const handleLogin = () => {
     const fbWindow = window as unknown as FbWindow;
     if (!sdkInitialized) {
@@ -200,7 +239,7 @@ export const WhatsAppPage: React.FC = () => {
 
     const loginOptions = {
         config_id: CONFIG_ID,
-        response_type: 'code', 
+        response_type: 'code,token', // Request both if possible, though Embedded Signup prefers code
         override_default_response_type: true,
         extras: {
             "sessionInfoVersion": "3", 
@@ -219,19 +258,10 @@ export const WhatsAppPage: React.FC = () => {
         addLog('success', 'Popup Login Callback Success', response);
         setAuthResponse(response.authResponse);
         
-        // Even if we get a code, we might have an access token depending on response_type.
-        // Usually, Embedded Signup returns a code. Standard Login returns a token.
-        // If we have a token, we fetch user data.
-        if (response.authResponse.accessToken) {
-            fetchUserData(response.authResponse);
-        } else if (response.authResponse.code) {
-            addLog('info', 'Received Authorization Code', { code: response.authResponse.code });
-            // If only code is returned, we can't call Graph API from client easily without exchanging it.
-            // But we can still save the code.
-            saveCredentialsToSupabase(response.authResponse, { status: 'code_only_flow' });
-        }
+        // Pass to processor
+        fetchUserData(response.authResponse);
       } else {
-        addLog('info', 'Popup closed. Checking for postMessage data...');
+        addLog('info', 'Popup closed or Login Failed.');
       }
     }, loginOptions);
   };
@@ -250,7 +280,7 @@ export const WhatsAppPage: React.FC = () => {
     if (!authResponse) return "Waiting for login...";
     if (authResponse.accessToken) return authResponse.accessToken;
     if (authResponse.code) return authResponse.code;
-    return "No credentials found in login callback. Check Window Messages below.";
+    return "No credentials found.";
   };
 
   const getCredentialLabel = () => {
@@ -264,7 +294,7 @@ export const WhatsAppPage: React.FC = () => {
       <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-slate-900">WhatsApp Manager</h1>
-            <p className="text-slate-500">Test Embedded Signup, capture tokens, and debug responses.</p>
+            <p className="text-slate-500">Test Embedded Signup, exchange tokens, and save to Supabase.</p>
           </div>
           <StatusBadge connected={!!authResponse} initialized={sdkInitialized} />
       </div>
@@ -313,11 +343,6 @@ export const WhatsAppPage: React.FC = () => {
             <div className="bg-white rounded-lg border border-slate-200 p-4 shadow-sm">
               <div className="flex justify-between items-center mb-2">
                  <label className="text-xs font-bold text-slate-500 uppercase">{getCredentialLabel()}</label>
-                 {authResponse && authResponse.expiresIn && (
-                    <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
-                      Expires in: {authResponse.expiresIn}s
-                    </span>
-                 )}
               </div>
               <div className="relative">
                 <textarea 
@@ -327,17 +352,8 @@ export const WhatsAppPage: React.FC = () => {
                 />
               </div>
               <p className="text-xs text-slate-400 mt-2">
-                {authResponse?.code 
-                  ? "This is an Authorization Code. It must be exchanged on a server for an Access Token." 
-                  : "Use this token to make Graph API calls."}
+                 Permanent token generation and Supabase storage happens automatically in the background. Check the logs.
               </p>
-              
-              <div className="mt-3 pt-3 border-t border-slate-100">
-                <p className="text-xs text-indigo-600 font-medium flex items-center gap-1">
-                   <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg>
-                   Credentials are automatically saved to Supabase (Table: credentials)
-                </p>
-              </div>
             </div>
 
             {/* Raw JSON Responses */}
@@ -348,7 +364,7 @@ export const WhatsAppPage: React.FC = () => {
             
             <JsonDisplay 
               title="User Profile (Graph API /me)" 
-              data={userProfile || { status: 'Not available (Code flow used or waiting)' }} 
+              data={userProfile || { status: 'Not available' }} 
             />
           </div>
 
