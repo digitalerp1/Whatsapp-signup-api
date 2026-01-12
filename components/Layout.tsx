@@ -12,7 +12,8 @@ import {
   LogOut,
   Menu,
   X,
-  FileJson // New Icon
+  FileJson,
+  Mail // New Icon
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -31,10 +32,11 @@ export const Layout: React.FC = () => {
     { label: 'WhatsApp Manager', path: '/whatsapp', icon: MessageCircle },
     { label: 'Instagram Manager', path: '/instagram', icon: Instagram },
     { label: 'Facebook Manager', path: '/facebook', icon: Facebook },
+    { label: 'Gmail Automation', path: '/gmail', icon: Mail }, // New Item
   ];
 
   const footerItems = [
-    { label: 'API Documentation', path: '/api-docs', icon: FileJson }, // New Item
+    { label: 'API Documentation', path: '/api-docs', icon: FileJson },
     { label: 'Help Center', path: '/help', icon: HelpCircle },
     { label: 'Privacy Policy', path: '/privacy', icon: Shield },
     { label: 'Terms & Conditions', path: '/terms', icon: FileText },

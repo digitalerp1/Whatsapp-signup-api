@@ -7,6 +7,8 @@ import { DashboardPage } from './pages/DashboardPage';
 import { WhatsAppPage } from './pages/WhatsAppPage';
 import { InstagramPage } from './pages/InstagramPage';
 import { FacebookPage } from './pages/FacebookPage';
+import { GmailPage } from './pages/GmailPage'; // New Import
+import { GoogleCallback } from './components/GoogleCallback'; // New Import
 import { HelpPage } from './pages/HelpPage';
 import { PrivacyPage } from './pages/PrivacyPage';
 import { TermsPage } from './pages/TermsPage';
@@ -220,9 +222,10 @@ const App: React.FC = () => {
           {/* Public Routes */}
           <Route path="/login" element={<LoginPage />} />
           
-          {/* Callback route */}
+          {/* Callback routes */}
           <Route path="/oauth" element={<OAuthCallback />} />
           <Route path="/oauth.html" element={<OAuthCallback />} />
+          <Route path="/oauth/google" element={<GoogleCallback />} /> {/* New Google Callback */}
 
           {/* Webhook Help Routes (Publicly accessible) */}
           <Route path="/webhook/facebook/data-deletion" element={<WebhookHandlerPage />} />
@@ -234,6 +237,7 @@ const App: React.FC = () => {
             <Route path="/whatsapp" element={<WhatsAppPage />} />
             <Route path="/instagram" element={<InstagramPage />} />
             <Route path="/facebook" element={<FacebookPage />} />
+            <Route path="/gmail" element={<GmailPage />} /> {/* New Gmail Page */}
             
             {/* Documentation & Support */}
             <Route path="/api-docs" element={<ApiDocsPage />} />
